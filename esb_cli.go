@@ -1,3 +1,4 @@
+// Package main implements a CLI interface to download esbnetworks.ie smart meter's power consumption data.
 package main
 
 import (

@@ -1,4 +1,4 @@
-// Package esblib implement an interface to myaccount.esbnetworks.ie to read power consumption data.
+// Package esblib implements an interface to myaccount.esbnetworks.ie to read power consumption data.
 package esblib
 
 import (
@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+	"golang.org/x/net/publicsuffix"
 )
 
 const (
@@ -76,12 +77,17 @@ func htmlFormToRequest(fragment []byte) (*http.Request, error) {
 
 // Client connects to esbnetworks.ie website to download usage data.
 type Client struct {
-	hc *http.Client
+	// Both the clients share the same cookie jar, but the second
+	// is configured to not follow redirects. It is useful to identify expired logins.
+	hc         *http.Client
+	noRedirect *http.Client
 }
 
 // NewClient returns a new ESB client.
 func NewClient() (*Client, error) {
-	j, err := cookiejar.New(nil)
+	j, err := cookiejar.New(&cookiejar.Options{
+		PublicSuffixList: publicsuffix.List,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -90,10 +96,20 @@ func NewClient() (*Client, error) {
 		hc: &http.Client{
 			Jar: j,
 		},
+		noRedirect: &http.Client{
+			Jar: j,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}, nil
 }
 
 // Login logs in into esb.
+//
+// Note that login expires after a short amount of minutes (currently 20).
+// Unless you need to download usage data for multiple smart meters from the
+// same account, you should always call Login immediately before DownloadPowerConsumption.
 func (c *Client) Login(user, password string) error {
 	if user == "" {
 		return errors.New("missing user name")
@@ -220,7 +236,7 @@ func (c *Client) postLogin(ls loginSettings, user, password string) error {
 // the last request required to move back the authentication results to
 // the ESB website.
 func (c *Client) getRedirect(pr loginSettings) (*http.Request, error) {
-	url := pr.reidirectURL()
+	url := pr.RedirectURL()
 
 	rsp, err := c.hc.Get(url.String())
 	if err != nil {
@@ -253,6 +269,9 @@ func (c *Client) finalizeLogin(req *http.Request) error {
 
 // DownloadPowerConsumption downloads the electricity usage data.
 //
+// You have to had a successful call of login in the last few minutes
+// (currently 20) or you'll get an error here.
+//
 // It is the equivalent of "Download HDF" button on the website.
 // The format is what is called an "Harmonised Downloadable File (HDF)",
 // which is just a CSV with the header in the 1st line.
@@ -268,7 +287,7 @@ func (c *Client) DownloadPowerConsumption(mprn string) ([]byte, error) {
 		return nil, errors.New("missing mprn")
 	}
 
-	rsp, err := c.hc.Get(dataURL + mprn)
+	rsp, err := c.noRedirect.Get(dataURL + mprn)
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +295,8 @@ func (c *Client) DownloadPowerConsumption(mprn string) ([]byte, error) {
 	case http.StatusOK:
 		// No error, move on.
 		break
+	case http.StatusFound:
+		return nil, errors.New("login expired or invalid")
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("not found, is the mprn %q correct and linked to this account?", mprn)
 	default:
@@ -329,7 +350,7 @@ func (ls loginSettings) PostLoginURL() *url.URL {
 	}
 }
 
-func (ls loginSettings) reidirectURL() *url.URL {
+func (ls loginSettings) RedirectURL() *url.URL {
 	// URL from getRedirectLink js function
 	// called by $i2e.redirectToServer("confirmed?rememberMe="+i,!0),!1}
 	s := ls.settings
