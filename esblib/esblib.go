@@ -122,7 +122,7 @@ func (c *Client) Login(user, password string) error {
 	return nil
 }
 
-// loadLoginPage is the first step of the login process.
+// loadLoginPage is the 1st step of the login process.
 //
 // It returns the login settings required by the next steps.
 func (c *Client) loadLoginPage() (loginSettings, error) {
@@ -130,6 +130,7 @@ func (c *Client) loadLoginPage() (loginSettings, error) {
 	if err != nil {
 		return loginSettings{}, err
 	}
+	defer rsp.Body.Close()
 
 	b, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
@@ -165,7 +166,7 @@ func (c *Client) loadLoginPage() (loginSettings, error) {
 	}, nil
 }
 
-// postLogin is the second step of the login process.
+// postLogin is the 2nd step of the login process.
 //
 // It is the one which actually sends the login information for authentication.
 func (c *Client) postLogin(ls loginSettings, user, password string) error {
@@ -187,6 +188,7 @@ func (c *Client) postLogin(ls loginSettings, user, password string) error {
 	if err != nil {
 		return err
 	}
+	defer rsp.Body.Close()
 
 	body, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
@@ -197,18 +199,21 @@ func (c *Client) postLogin(ls loginSettings, user, password string) error {
 		return errors.New("bad request")
 	}
 
-	var rs struct{ Status string }
+	var rs struct{ Status, ErrorCode, Message string }
 	if err := json.Unmarshal(body, &rs); err != nil {
 		return fmt.Errorf("cannot parse response: %w", err)
 	}
 	if rs.Status != "200" {
-		return fmt.Errorf("invalid status %v", string(body))
+		if rs.Message == "" {
+			return fmt.Errorf("invalid status %v", string(body))
+		}
+		return fmt.Errorf("error %s: %s", rs.ErrorCode, rs.Message)
 	}
 
 	return nil
 }
 
-// getRedirect is the third step of the login process.
+// getRedirect is the 3rd step of the login process.
 //
 // It loads teh redirect page and parses its content to return
 // the last request required to move back the authentication results to
@@ -220,6 +225,7 @@ func (c *Client) getRedirect(pr loginSettings) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rsp.Body.Close()
 
 	body, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
@@ -229,40 +235,64 @@ func (c *Client) getRedirect(pr loginSettings) (*http.Request, error) {
 	return htmlFormToRequest(body)
 }
 
-// finalizeLogin is the fourth and last step of the login.
+// finalizeLogin is the 4th and last step of the login.
 //
 // Here we load the actual ESB website and authenticate on it.
 func (c *Client) finalizeLogin(req *http.Request) error {
-
 	rsp, err := c.hc.Do(req)
 	if err != nil {
 		return err
 	}
+	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK {
 		return fmt.Errorf("cannot auth on ESB: status %v", rsp.Status)
 	}
 	return nil
 }
 
-// Download downloads the electricity usage data.
-func (c *Client) Download(mprn string) error {
+// DownloadPowerConsumption downloads the electricity usage data.
+//
+// It is the equivalent of "Download HDF" button on the website.
+// The format is what is called an "Harmonised Downloadable File (HDF)",
+// which is just a CSV with the header in the 1st line.
+//
+// Currently, the format is:
+//
+//	MPRN,Meter Serial Number,Read Value,Read Type,Read Date and End Time
+//
+// To the best of my knowledge, the only useful fields are "Read Value"
+// and "Read Date and End Time" because all the others have fixed value.
+func (c *Client) DownloadPowerConsumption(mprn string) ([]byte, error) {
 	if mprn == "" {
-		return errors.New("missing mprn")
+		return nil, errors.New("missing mprn")
 	}
 
 	rsp, err := c.hc.Get(dataURL + mprn)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("cannot download: status %v", rsp.Status)
+	switch rsp.StatusCode {
+	case http.StatusOK:
+		// No error, move on.
+		break
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("not found, is the mprn %q correct and linked to this account?", mprn)
+	default:
+		return nil, fmt.Errorf("status %v", rsp.Status)
 	}
-	body, _ := ioutil.ReadAll(rsp.Body)
-	fmt.Printf("rsp %s\n\n", string(body))
-	return nil
+	defer rsp.Body.Close()
+
+	// We could stream data to save some memory, but I don't like the idea of
+	// having a pending HTTP request around for too long.
+	// We can change and optimize later if needed.
+	body, err := ioutil.ReadAll(rsp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
 }
 
-// pageSettings is a struct to de-serialize the `SETTINGS` json defined on top of the login page.
+// pageSettings is a struct to de-serialize the "SETTINGS" json defined on top of the login page.
 // Only the fields required to perform the login are defined here.
 type pageSettings struct {
 	CSRF    string `json:"csrf"`
