@@ -12,12 +12,17 @@ import (
 
 var (
 	// TODO: it would be nice to read the password from env variable for security reasons.
-	user     = flag.String("user", "", "esbnetworks.ie user name")
-	password = flag.String("password", "", "esbnetworks.ie password")
-	mprn     = flag.String("mprn", "", "mprn number")
+	user     = flag.String("user", "", "the esbnetworks.ie user name")
+	password = flag.String("password", "", "the esbnetworks.ie password")
+	mprn     = flag.String("mprn", "", "the mprn number")
 )
 
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "A command line tool to download smart meter's power consumption from esbnetworks.ie.\n\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 
 	e, err := esblib.NewClient()

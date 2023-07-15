@@ -1,3 +1,4 @@
+// Package esblib implement an interface to myaccount.esbnetworks.ie to read power consumption data.
 package esblib
 
 import (
