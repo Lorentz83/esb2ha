@@ -17,18 +17,18 @@ var (
 func main() {
 	flag.Parse()
 
-	e, err := esblib.NewClient(*user, *password, *mprn)
+	e, err := esblib.NewClient( )
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Cannot create client: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := e.Login(); err != nil {
+	if err := e.Login(*user, *password); err != nil {
 		fmt.Fprintf(os.Stderr, "Cannot login: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := e.Download(); err != nil {
+	if err := e.Download(*mprn); err != nil {
 		fmt.Fprintf(os.Stderr, "Cannot download data: %v\n", err)
 		os.Exit(1)
 	}

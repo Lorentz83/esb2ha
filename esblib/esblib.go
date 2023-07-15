@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -76,64 +75,113 @@ func htmlFormToRequest(fragment []byte) (*http.Request, error) {
 
 // Client connects to esbnetworks.ie website to download usage data.
 type Client struct {
-	username string
-	password string
-	mprn     string
-	hc       *http.Client
+	hc *http.Client
 }
 
 // NewClient returns a new ESB client.
-func NewClient(user, password, mprn string) (*Client, error) {
-	if user == "" {
-		return nil, errors.New("missing user name")
-	}
-	if password == "" {
-		return nil, errors.New("missing password")
-	}
-	if mprn == "" {
-		return nil, errors.New("missing mprn")
-	}
-
+func NewClient() (*Client, error) {
 	j, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Client{
-		username: user,
-		password: password,
-		mprn:     mprn,
 		hc: &http.Client{
 			Jar: j,
 		},
 	}, nil
 }
 
-func (c *Client) sendLogin(pr initPhaseResult) error {
-	u, err := pr.postURL()
+// Login logs in into esb.
+func (c *Client) Login(user, password string) error {
+	if user == "" {
+		return errors.New("missing user name")
+	}
+	if password == "" {
+		return errors.New("missing password")
+	}
+
+	pr, err := c.loadLoginPage()
 	if err != nil {
 		return err
 	}
 
+	if err := c.postLogin(pr, user, password); err != nil {
+		return err
+	}
+
+	req, err := c.getRedirect(pr)
+	if err != nil {
+		return err
+	}
+
+	if err := c.finalizeLogin(req); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// loadLoginPage is the first step of the login process.
+//
+// It returns the login settings required by the next steps.
+func (c *Client) loadLoginPage() (loginSettings, error) {
+	rsp, err := c.hc.Get(baseURL)
+	if err != nil {
+		return loginSettings{}, err
+	}
+
+	b, err := ioutil.ReadAll(rsp.Body)
+	if err != nil {
+		return loginSettings{}, err
+	}
+
+	const settingsPrefix = "var SETTINGS = "
+	// Here we assume that SETTINGS is on a single line.
+	// To make it more robust we should use some JS parser.
+	var settings string
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(l, settingsPrefix) {
+			settings = l
+			break
+		}
+	}
+	if settings == "" {
+		return loginSettings{}, errors.New("cannot find page settings")
+	}
+	settings = strings.TrimPrefix(settings, settingsPrefix)
+	settings = strings.TrimRightFunc(settings, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == '\t' || r == ';' || r == ' '
+	})
+
+	var sj pageSettings
+	if err := json.Unmarshal(([]byte)(settings), &sj); err != nil {
+		return loginSettings{}, err
+	}
+
+	return loginSettings{
+		loginURL: rsp.Request.URL,
+		settings: sj,
+	}, nil
+}
+
+// postLogin is the second step of the login process.
+//
+// It is the one which actually sends the login information for authentication.
+func (c *Client) postLogin(ls loginSettings, user, password string) error {
+	u := ls.PostLoginURL()
+
 	data := url.Values{}
-	data.Set("signInName", c.username)
-	data.Set("password", c.password)
+	data.Set("signInName", user)
+	data.Set("password", password)
 	data.Set("request_type", "RESPONSE")
 
 	req, err := http.NewRequest("POST", u.String(), strings.NewReader(data.Encode()))
 	if err != nil {
-		log.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-
-	req.Header.Set("Cookie", pr.brokenCookieHeader)
-
-	csrf, err := pr.csrf()
-	if err != nil {
 		return err
 	}
-
-	req.Header.Set("X-CSRF-TOKEN", csrf)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("X-CSRF-TOKEN", ls.CSRF())
 
 	rsp, err := c.hc.Do(req)
 	if err != nil {
@@ -160,11 +208,13 @@ func (c *Client) sendLogin(pr initPhaseResult) error {
 	return nil
 }
 
-func (c *Client) getRedirect(pr initPhaseResult) (*http.Request, error) {
-	url, err := pr.reidirectURL()
-	if err != nil {
-		return nil, err
-	}
+// getRedirect is the third step of the login process.
+//
+// It loads teh redirect page and parses its content to return
+// the last request required to move back the authentication results to
+// the ESB website.
+func (c *Client) getRedirect(pr loginSettings) (*http.Request, error) {
+	url := pr.reidirectURL()
 
 	rsp, err := c.hc.Get(url.String())
 	if err != nil {
@@ -179,83 +229,10 @@ func (c *Client) getRedirect(pr initPhaseResult) (*http.Request, error) {
 	return htmlFormToRequest(body)
 }
 
-func (c *Client) prepare() (initPhaseResult, error) {
-	rsp, err := c.hc.Get(baseURL)
-	if err != nil {
-		return initPhaseResult{}, err
-	}
-
-	const brokenCookieName = "x-ms-cpim-sso:esbntwkscustportalprdb2c01.onmicrosoft.com_0"
-	var brokenCookieHeader string
-	for _, raw := range rsp.Header.Values("Set-Cookie") {
-		if !strings.HasPrefix(raw, brokenCookieName) {
-			continue
-		}
-		r := http.Request{
-			Header: http.Header{},
-		}
-
-		r.Header.Add("Cookie", strings.Replace(raw, brokenCookieName, "c", 1))
-		cc := r.Cookies()[0]
-		brokenCookieValue := cc.Value
-
-		cookie := http.Cookie{
-			Name:  "brokenCookieName",
-			Value: brokenCookieValue,
-		}
-		brokenCookieHeader = strings.Replace(cookie.String(), "brokenCookieName", brokenCookieName, 1)
-		break
-	}
-	if brokenCookieHeader == "" {
-		return initPhaseResult{}, errors.New("cannot find broken cookie")
-	}
-
-	b, err := ioutil.ReadAll(rsp.Body)
-	if err != nil {
-		return initPhaseResult{}, err
-	}
-	const settingsPrefix = "var SETTINGS = "
-	var settings string
-	for _, l := range strings.Split(string(b), "\n") {
-		if strings.HasPrefix(l, settingsPrefix) {
-			settings = l
-			break
-		}
-	}
-	if settings == "" {
-		return initPhaseResult{}, errors.New("cannot find page settings")
-	}
-	settings = strings.TrimPrefix(settings, settingsPrefix)
-	settings = strings.TrimRightFunc(settings, func(r rune) bool {
-		return r == '\n' || r == '\r' || r == '\t' || r == ';' || r == ' '
-	})
-	sj := map[string]any{}
-	if err := json.Unmarshal(([]byte)(settings), &sj); err != nil {
-		return initPhaseResult{}, err
-	}
-
-	return initPhaseResult{
-		brokenCookieHeader: brokenCookieHeader,
-		loginURL:           rsp.Request.URL,
-		settings:           sj,
-	}, nil
-}
-
-// Login logs in into esb.
-func (c *Client) Login() error {
-	pr, err := c.prepare()
-	if err != nil {
-		return err
-	}
-
-	if err := c.sendLogin(pr); err != nil {
-		return err
-	}
-
-	req, err := c.getRedirect(pr)
-	if err != nil {
-		return err
-	}
+// finalizeLogin is the fourth and last step of the login.
+//
+// Here we load the actual ESB website and authenticate on it.
+func (c *Client) finalizeLogin(req *http.Request) error {
 
 	rsp, err := c.hc.Do(req)
 	if err != nil {
@@ -267,8 +244,13 @@ func (c *Client) Login() error {
 	return nil
 }
 
-func (c *Client) Download() error {
-	rsp, err := c.hc.Get(dataURL + c.mprn)
+// Download downloads the electricity usage data.
+func (c *Client) Download(mprn string) error {
+	if mprn == "" {
+		return errors.New("missing mprn")
+	}
+
+	rsp, err := c.hc.Get(dataURL + mprn)
 	if err != nil {
 		return err
 	}
@@ -280,61 +262,52 @@ func (c *Client) Download() error {
 	return nil
 }
 
-type initPhaseResult struct {
-	brokenCookieHeader string
-	loginURL           *url.URL
-	settings           map[string]any
+// pageSettings is a struct to de-serialize the `SETTINGS` json defined on top of the login page.
+// Only the fields required to perform the login are defined here.
+type pageSettings struct {
+	CSRF    string `json:"csrf"`
+	TransID string `json:"transId"`
+	API     string `json:"api"`
+	Hosts   struct {
+		Tenant string `json:"tenant"`
+		Policy string `json:"policy"`
+	} `json:"hosts"`
 }
 
-func (rs initPhaseResult) csrf() (string, error) {
-	c, ok := rs.settings["csrf"]
-	if !ok {
-		return "", errors.New("cannot find csrf settings")
-	}
-	ret, ok := c.(string)
-	if !ok {
-		return "", fmt.Errorf("csrf setting is of type %T instead of string", c)
-	}
-	return ret, nil
+type loginSettings struct {
+	// LoginURL is actual login URL, which is the one we get redirected from baseURL.
+	loginURL *url.URL
+	// internal page settings.
+	settings pageSettings
 }
 
-func (rs initPhaseResult) postURL() (*url.URL, error) {
-	e := rs.settings
-	h, ok := e["hosts"].(map[string]any)
-	if !ok {
-		return nil, errors.New("cannot find hosts settings")
-	}
+// CSRF returns the CSRF value to set as header.
+func (ls loginSettings) CSRF() string {
+	return ls.settings.CSRF
+}
 
-	ret := h["tenant"].(string) + "/SelfAsserted" // somethins seems override h[api] with SelfAsserted
-	q := "tx=" + e["transId"].(string) + "&p=" + h["policy"].(string)
-
+// PostLoginURL is the URL to post login data.
+func (ls loginSettings) PostLoginURL() *url.URL {
+	// URL used by the _signIn js function.
+	s := ls.settings
 	return &url.URL{
-		Scheme:   rs.loginURL.Scheme,
-		Host:     rs.loginURL.Host,
-		Path:     ret,
-		RawQuery: q,
-	}, nil
+		Scheme:   ls.loginURL.Scheme,
+		Host:     ls.loginURL.Host,
+		Path:     s.Hosts.Tenant + "/SelfAsserted", // h[api] is overridden with SelfAsserted
+		RawQuery: "tx=" + s.TransID + "&p=" + s.Hosts.Policy,
+	}
 }
 
-func (rs initPhaseResult) reidirectURL() (*url.URL, error) {
+func (ls loginSettings) reidirectURL() *url.URL {
 	// URL from getRedirectLink js function
 	// called by $i2e.redirectToServer("confirmed?rememberMe="+i,!0),!1}
-	e := rs.settings
-	h, ok := e["hosts"].(map[string]any)
-	if !ok {
-		return nil, errors.New("cannot find hosts settings")
-	}
-	csrf, err := rs.csrf()
-	if err != nil {
-		return nil, err
-	}
-	q := "rememberMe=false&csrf_token=" + csrf + "&tx=" + e["transId"].(string) + "&p" + h["policy"].(string)
-	path := h["tenant"].(string) + "/api/" + e["api"].(string) + "/confirmed"
+	s := ls.settings
 
+	csrf := ls.CSRF()
 	return &url.URL{
-		Scheme:   rs.loginURL.Scheme,
-		Host:     rs.loginURL.Host,
-		Path:     path,
-		RawQuery: q,
-	}, nil
+		Scheme:   ls.loginURL.Scheme,
+		Host:     ls.loginURL.Host,
+		Path:     s.Hosts.Tenant + "/api/" + s.API + "/confirmed",
+		RawQuery: "rememberMe=false&csrf_token=" + csrf + "&tx=" + s.TransID + "&p" + s.Hosts.Policy,
+	}
 }
