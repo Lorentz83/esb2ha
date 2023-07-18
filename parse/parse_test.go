@@ -140,9 +140,15 @@ func TestHDF_DSTSwitch(t *testing.T) {
 		{
 			"Entering Daylight Saving time",
 			`MPRN,Meter Serial Number,Read Value,Read Type,Read Date and End Time
+123,45,0.1,Active Import Interval (kW),26-03-2023 02:30
 123,45,0.1,Active Import Interval (kW),26-03-2023 02:00
-123,45,0.1,Active Import Interval (kW),26-03-2023 00:30`,
+123,45,0.1,Active Import Interval (kW),26-03-2023 00:30
+123,45,0.1,Active Import Interval (kW),26-03-2023 00:00`,
 			[]Read{
+				{
+					Value:   0.1,
+					EndTime: time.Date(2023, 03, 26, 00, 00, 0, 0, time.FixedZone("GMT", 0)), // Irish Winter Time.
+				},
 				{
 					Value:   0.1,
 					EndTime: time.Date(2023, 03, 26, 00, 30, 0, 0, time.FixedZone("GMT", 0)), // Irish Winter Time.
@@ -150,6 +156,10 @@ func TestHDF_DSTSwitch(t *testing.T) {
 				{
 					Value:   0.1,
 					EndTime: time.Date(2023, 03, 26, 02, 00, 0, 0, time.FixedZone("IST", 60*60)), // Irish Summer Time.
+				},
+				{
+					Value:   0.1,
+					EndTime: time.Date(2023, 03, 26, 02, 30, 0, 0, time.FixedZone("IST", 60*60)), // Irish Summer Time.
 				},
 			},
 		},

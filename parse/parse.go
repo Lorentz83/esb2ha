@@ -135,12 +135,13 @@ func fixTimezone(res *Result) {
 		// checks is required.
 		// Doing both checks we can fix also the time switch at the beginning or end of the file.
 		switch {
-		case i-2 >= 0: // Is the prev prev is exactly the same time.
-			res.Reads[i-2].EndTime.Equal(ct)
-			r.EndTime = ct.Add(time.Hour)
-			res.Reads[i] = r
-		case i+2 < max: // Can be followed by winter.
-			// If adding one hour to this entry makes it one our earlier of the next next.
+		case i-2 >= 0: // If there is an entry one hour earlier.
+			if res.Reads[i-2].EndTime.Equal(ct) { // And it is equal to now.
+				r.EndTime = ct.Add(time.Hour)
+				res.Reads[i] = r
+			}
+		case i+2 < max: // If there is an entry one hour later.
+			// And adding one hour to this entry makes it one our earlier of the next hour.
 			fix := ct.Add(time.Hour)
 			if res.Reads[i+2].EndTime.Sub(fix).Hours() == 1 {
 				r.EndTime = fix
