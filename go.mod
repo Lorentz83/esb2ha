@@ -1,4 +1,4 @@
-module github.com/lorentz83/esb_cli
+module github.com/lorentz83/esb2ha
 
 go 1.19
 

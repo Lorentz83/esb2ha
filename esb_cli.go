@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/lorentz83/esb_cli/esblib"
+	"github.com/lorentz83/esb2ha/esblib"
 )
 
 var (

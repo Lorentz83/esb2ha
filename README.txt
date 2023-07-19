@@ -1,4 +1,8 @@
-# esb_cli
+# esb2ha
+
+WARNING: this is a work in progress. Download data from ESB seems working
+         already but I don't know how reliable it is.
+         Also, Home Assistant integration is missing.
 
 If you live in Ireland you likely have electricity provided by an ESB
 smart meter.
