@@ -11,6 +11,8 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/lorentz83/esb2ha/esblib"
+	"github.com/lorentz83/esb2ha/ha"
+	"github.com/lorentz83/esb2ha/parse"
 )
 
 func init() {
@@ -137,14 +139,41 @@ func (c *uploadCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.sensor, "ha_sensor", "", "Home Assistant sensor ID used to record power usage")
 }
 
-func (c uploadCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
+func (c *uploadCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
 	if err := ensureFlagsAreSet(f); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
 		return subcommands.ExitUsageError
 	}
 
-	fmt.Fprintf(os.Stderr, "Not yet implemented\n")
-	return subcommands.ExitFailure
+	fmt.Println("Reading from stdin...")
+
+	data, err := parse.HDF(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot read data: %v\n", err)
+		return subcommands.ExitFailure
+	}
+
+	stat, err := parse.Translate(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot parse data: %v\n", err)
+		return subcommands.ExitFailure
+	}
+
+	stat.Metadata.StatisticID = c.sensor
+
+	conn, err := ha.NewConnection(ctx, c.server, c.token)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot connect to Home Assistant: %v\n", err)
+		return subcommands.ExitFailure
+	}
+
+	if err := conn.SendStatistics(ctx, stat); err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot send statistics to Home Assistant: %v\n", err)
+		return subcommands.ExitFailure
+	}
+
+	fmt.Printf("Sent %d data points\n", len(stat.Stats))
+	return subcommands.ExitSuccess
 }
 
 type pipeCmd struct {

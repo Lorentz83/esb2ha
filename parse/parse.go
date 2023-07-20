@@ -3,11 +3,14 @@ package parse
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"strconv"
 	"time"
+
+	"github.com/lorentz83/esb2ha/ha"
 )
 
 const wantReadType = "Active Import Interval (kW)"
@@ -219,4 +222,74 @@ func validateHeader(r *csv.Reader) error {
 		}
 	}
 	return nil
+}
+
+// isRound returns if the time is a hour round (no minutes or seconds).
+func isRound(t time.Time) bool {
+	return t.Round(time.Hour).Equal(t)
+}
+
+// Translate translates ESB data into Home Assistant statistics.
+//
+// ESB exports kW every half an hour, while Home Assistant wants
+// kWh every hour.
+//
+// Also ESB reports the timestamp at the end of the record period
+// while Home Assistant wants the start time.
+//
+// The input must be valid according to ESB().
+func Translate(raw Result) (ha.Statistics, error) {
+	ret := ha.Statistics{
+		Metadata: ha.StatisticMetadata{
+			HasSum:            true,
+			UnitOfMeasurement: "kWh",
+		},
+	}
+
+	reads := raw.Reads
+	if len(reads) == 0 {
+		return ret, errors.New("not enough data")
+	}
+	if len(reads) > 0 && isRound(reads[0].EndTime) {
+		// We want to start from a half an hour.
+		reads = reads[1:]
+	}
+
+	var (
+		tsValidator = reads[0].EndTime.Add(-30 * time.Minute)
+		sum         float64 // Accumulator
+		value       float64 // The current hour value
+	)
+
+	// My physic knowledge is a little rusted. Graph looks good
+	// in Home Assistant, but please let me know if there is any
+	// mistake here.
+	// kW is power while kWh is energy.
+	// Like kW is speed, while kWh is distance.
+	// So kW times hours = kWh
+	for i, r := range reads {
+		// Let's be sure that we get 30 minutes increments as expected.
+		if min := r.EndTime.Sub(tsValidator).Minutes(); min != 30 {
+			return ret, fmt.Errorf("value %d: entries should be recorded at 30 minutes increment, got %v (%v -> %v)", i, min, tsValidator, r.EndTime)
+		}
+		tsValidator = r.EndTime
+		//log.Printf("ts %v %v", i, tsValidator)
+
+		value += r.Value / 2.0 // Only half an hour reading.
+
+		// The graph in Home Assistant aligns better to the graph on
+		// esbnetworks.ie if we keep the start time on the center of
+		// 2 values.
+		if i%2 == 0 && i > 0 {
+			sum += value
+			ret.Stats = append(ret.Stats, ha.StatisticValue{
+				Start: reads[i-1].EndTime,
+				State: value,
+				Sum:   sum,
+			})
+			value = 0
+		}
+	}
+
+	return ret, nil
 }

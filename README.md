@@ -1,8 +1,11 @@
 # esb2ha
 
-WARNING: this is a work in progress. Download data from ESB seems working
-         already but I don't know how reliable it is.
-         Also, Home Assistant integration is missing.
+Download electricity usage data from ESB and (optionally) upload it
+to Home Assistant.
+
+**WARNING**: this is a work in progress. It seems working as expected
+             but probability of bugs is high and probability of
+             documentation is low.
 
 If you live in Ireland you likely have electricity provided by an ESB
 smart meter.
@@ -25,7 +28,7 @@ link your smart meter to it, and you can simply run this tool to
 download your data as frequently as you want.
 
 Please note that the data they provide is not in realtime. So there is
-no benefit in running this tool every minute.
+no benefit in running this tool too frequently.
 
 ## Disclaimer
 
@@ -38,31 +41,49 @@ Use this tool at your own risk.
 
 I should test usability a little better: the login process is
 cumbersome and heavily relies on JavaScript, this tool doesn't include
-a full browser nor a JavaScript engine.  I don't have enough mileage
+a full browser nor a JavaScript engine. I don't have enough mileage
 yet to know if error reporting is good enough and how resilient is
 during platform updates.
 
-### Home Assistant integration
+### Document Home Assistant integration
 
-[Home Assistant](https://home-assistant.io/) is an open source home
-automation system. It has a nice energy dashboard that I'd like to
-use.
+You can upload data to home assistant, it is pretty easy but you need:
 
-My goal is to find a way to feed this data into Home Assistant so I
-can benefit of the visualization already implemented there.
+    1. create a sensor
+    2. create an access token
+    3. add the sensor in the energy dashboard
+    4. understand some caveats
 
-Despite there is no good support to import historical data
-[ref](https://community.home-assistant.io/t/improved-support-for-long-term-historic-data/379659)
-it looks like it is already
-[possible](https://community.home-assistant.io/t/import-old-energy-readings-for-use-in-energy-dashboard/341406/9).
+All of these steps should be documented here.
 
-If a proper integration is proven too difficult, there is always the
-alternative to feed data directly
-[into the
-database](https://community.home-assistant.io/t/import-old-energy-readings-for-use-in-energy-dashboard/341406).
-Which has the downside to require stopping Home Assistant to
-prevent data corruption.
+### Document building and usage
 
-I'm fairly sure it is possible to integrate Home Assistant with external binaries.
-But please let me know if you are a Python developer who would like to port this 
-library natively in Python.
+If you are familiar with GO it should be pretty trivial to compile.
+If not it may be challenging. I should document it here.
+
+Also some usage example would be nice, for now let's say that you 
+can run:
+
+```
+go run esb2ha.go 
+```
+
+and see the help.
+
+### Add a docker image
+
+It may be nice so you don't have to install the go toolchain.
+I would expect that many Home Assistant users are more familiar
+with Docker than GO.
+
+### Write a proper Home Assistant integration
+
+This is the longest shot for me, I don't know enough Python to do it.
+
+Since this script can be likely put in a crontab and forget about it
+there is no big value in a proper integration other than a fancy UI.
+
+But everyone likes a fancy UI...
+
+If you are a Python developer interested in porting this project
+please let me know.
