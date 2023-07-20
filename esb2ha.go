@@ -20,6 +20,12 @@ func init() {
 	subcommands.Register(&uploadCmd{}, "")
 	subcommands.Register(&pipeCmd{}, "")
 	subcommands.Register(subcommands.HelpCommand(), "")
+	baseExplain := subcommands.DefaultCommander.Explain
+	subcommands.DefaultCommander.Explain = func(w io.Writer) {
+		fmt.Fprint(w, "Download electricity usage data from ESB and (optionally) upload it to Home Assistant.\n\n")
+		baseExplain(w)
+		fmt.Fprintln(w, "Copyright 2023 Lorenzo Bossi.\nThis tool is free software, fore more information https://github.com/Lorentz83/esb2ha/")
+	}
 }
 
 func main() {
@@ -86,25 +92,14 @@ func (c *downloadCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...inte
 		return subcommands.ExitUsageError
 	}
 
-	e, err := esblib.NewClient()
+	data, err := c.download()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot connect to ESB website: %v\n", err)
-		return subcommands.ExitFailure
-	}
-
-	if err := e.Login(c.user, c.password); err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot login: %v\n", err)
-		return subcommands.ExitFailure
-	}
-
-	data, err := e.DownloadPowerConsumption(c.mprn)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot download power consumption data: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERROR: %s", err)
 		return subcommands.ExitFailure
 	}
 
 	if _, err := io.Copy(os.Stdout, bytes.NewReader(data)); err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot write power consumption data: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERROR: Cannot write power consumption data: %v\n", err)
 		return subcommands.ExitFailure
 	}
 
@@ -112,6 +107,23 @@ func (c *downloadCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...inte
 	fmt.Fprintln(os.Stdout)
 
 	return subcommands.ExitSuccess
+}
+
+func (c *downloadCmd) download() ([]byte, error) {
+	e, err := esblib.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("cannot connect to ESB website: %w", err)
+	}
+
+	if err := e.Login(c.user, c.password); err != nil {
+		return nil, fmt.Errorf("cannot login: %w", err)
+	}
+
+	data, err := e.DownloadPowerConsumption(c.mprn)
+	if err != nil {
+		return nil, fmt.Errorf("cannot download power consumption data: %w", err)
+	}
+	return data, nil
 }
 
 type uploadCmd struct {
@@ -147,33 +159,38 @@ func (c *uploadCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...interf
 
 	fmt.Println("Reading from stdin...")
 
-	data, err := parse.HDF(os.Stdin)
+	stat, err := c.upload(ctx, os.Stdin)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot read data: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		return subcommands.ExitFailure
+	}
+
+	fmt.Printf("Sent %d data points\n", len(stat.Stats))
+	return subcommands.ExitSuccess
+}
+
+func (c *uploadCmd) upload(ctx context.Context, reader io.Reader) (ha.Statistics, error) {
+	data, err := parse.HDF(reader)
+	if err != nil {
+		return ha.Statistics{}, fmt.Errorf("cannot read data: %w", err)
 	}
 
 	stat, err := parse.Translate(data)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot parse data: %v\n", err)
-		return subcommands.ExitFailure
+		return stat, fmt.Errorf("cannot parse data: %w", err)
 	}
 
 	stat.Metadata.StatisticID = c.sensor
 
 	conn, err := ha.NewConnection(ctx, c.server, c.token)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot connect to Home Assistant: %v\n", err)
-		return subcommands.ExitFailure
+		return stat, fmt.Errorf("cannot connect to Home Assistant: %w", err)
 	}
 
 	if err := conn.SendStatistics(ctx, stat); err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot send statistics to Home Assistant: %v\n", err)
-		return subcommands.ExitFailure
+		return stat, fmt.Errorf("cannot send statistics to Home Assistant: %w", err)
 	}
-
-	fmt.Printf("Sent %d data points\n", len(stat.Stats))
-	return subcommands.ExitSuccess
+	return stat, nil
 }
 
 type pipeCmd struct {
@@ -201,12 +218,27 @@ func (c *pipeCmd) SetFlags(fs *flag.FlagSet) {
 	c.esb.SetFlags(fs)
 }
 
-func (c pipeCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
+func (c *pipeCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
 	if err := ensureFlagsAreSet(f); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
 		return subcommands.ExitUsageError
 	}
 
-	fmt.Fprintf(os.Stderr, "Not yet implemented\n")
-	return subcommands.ExitFailure
+	fmt.Println("Downloading data...")
+	data, err := c.esb.download()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		return subcommands.ExitFailure
+	}
+
+	fmt.Println("Uploading data...")
+	stat, err := c.ha.upload(ctx, bytes.NewReader(data))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		return subcommands.ExitFailure
+	}
+
+	fmt.Printf("Sent %d data points\n", len(stat.Stats))
+
+	return subcommands.ExitSuccess
 }
