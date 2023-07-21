@@ -21,7 +21,7 @@ cd testing
 export esb_password=[...]
 export esb_user=[...]
 export mprn=[...]
-./ test.sh
+./test.sh
 ```
 
 It will create an ephemeral instance of Home Assistant and uploads
