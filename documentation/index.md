@@ -1,3 +1,14 @@
+The assumption in the whole documentation is that you are already
+registered to https://www.esbnetworks.ie and you know:
+
+  1. your user name.
+  2. your password.
+  3. your mprn number.
+
+You can find the mprn number either on the top of your electricity
+bill or (provided you linked it already to your account) in your
+personal section of esbnetworks.ie.
+
 # I just wan to give it a quick try
 
 You can!
@@ -23,8 +34,8 @@ images and it is like nothing ever happened!
 # Building the command line tool
 
 There are two options:
-1. using the Go toolchain to build a binary
-2. using docker to build an image
+  1. using the Go toolchain to build a binary
+  2. using docker to build an image
 
 ## Using the go toolchain
 
@@ -74,8 +85,8 @@ to collect it.
 Open your `configuration.yaml` and add the following section:
 
 ```
-template:                                                                                                        
-  - trigger:
+template:
+- trigger:
     sensor:
       name: 'ESB electricity usage' # Feel free to change this.
       availability: 'false'
@@ -103,7 +114,7 @@ The `state_class` mentions that the statistics of this sensor will
 increase but can be reset to 0 (which happens every time there is a
 new import).
 
-Once the yaml is edit is done, open Home Assistant's "Developer tools"
+Once the yaml edit is done, open Home Assistant's "Developer tools"
 and click "Check configuration", to be sure there is no issue,
 followed by "Restart".
 
@@ -116,7 +127,15 @@ Remember that ESB doesn't export data fresher than 24 hours, so the
 first graph you'll see will be empty. Don't worry, change day or move
 to the weekly or monthly view to see your energy consumption.
 
-TODO: add some screenshots.
+You can see the comparison between the graph rendered on ESB and Home
+Assistant.
+
+![ESB power consumption graph](esb.png)
+![Home Assistant Energy dashboard](home-assistant-energy.png)
+
+Keep in mind that while ESB records a value every half an hour, Home
+Assistant recors a value every hour. Therefore minor differences are
+expected.
 
 Finally, you need to create an authentication token so that the
 command line can connect to upload data to this sensor.
