@@ -5,7 +5,7 @@ to Home Assistant.
 
 **WARNING**: this is a work in progress. It seems working as expected
              but probability of bugs is high and probability of
-             documentation is low.
+             documentation is a little low.
 
 If you live in Ireland you likely have electricity provided by an ESB
 smart meter.
@@ -23,9 +23,14 @@ Despite you can download a nice CSV from their website, logging in
 daily to get the latest results is not really my hobby.
 
 Here there is a small command line tool which can automate this for
-you.  You simply have to register to https://myaccount.esbnetworks.ie,
+you. You simply have to register to https://myaccount.esbnetworks.ie,
 link your smart meter to it, and you can simply run this tool to
 download your data as frequently as you want.
+
+If you are a Home Assistant user you can also upload this data to your
+instance and have it ready in the Energy dashboard.
+
+Check the `documentation` directory for a longer explanation.
 
 Please note that the data they provide is not in realtime. So there is
 no benefit in running this tool too frequently.
@@ -44,31 +49,6 @@ cumbersome and heavily relies on JavaScript, this tool doesn't include
 a full browser nor a JavaScript engine. I don't have enough mileage
 yet to know if error reporting is good enough and how resilient is
 during platform updates.
-
-### Document Home Assistant integration
-
-You can upload data to home assistant, it is pretty easy but you need:
-
-    1. create a sensor
-    2. create an access token
-    3. add the sensor in the energy dashboard
-    4. understand some caveats
-
-All of these steps should be documented here.
-
-### Document building and usage
-
-If you are familiar with GO it should be pretty trivial to compile.
-If not it may be challenging. I should document it here.
-
-Also some usage example would be nice, for now let's say that you 
-can run:
-
-```
-go run esb2ha.go 
-```
-
-and see the help.
 
 ### Write a proper Home Assistant integration
 
