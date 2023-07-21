@@ -70,12 +70,6 @@ go run esb2ha.go
 
 and see the help.
 
-### Add a docker image
-
-It may be nice so you don't have to install the go toolchain.
-I would expect that many Home Assistant users are more familiar
-with Docker than GO.
-
 ### Write a proper Home Assistant integration
 
 This is the longest shot for me, I don't know enough Python to do it.
