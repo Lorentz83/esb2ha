@@ -123,6 +123,9 @@ At this point you can proceed with the import.
 Once done, you can go to the "Energy" dashboard and follow the
 instruction to add the new sensor.
 
+NOTE: If you configured already the Energy dashboard, you need to go
+to Settings > Dashboards > Energy to add a new sensor.
+
 Remember that ESB doesn't export data fresher than 24 hours, so the
 first graph you'll see will be empty. Don't worry, change day or move
 to the weekly or monthly view to see your energy consumption.
