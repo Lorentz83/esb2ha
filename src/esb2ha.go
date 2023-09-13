@@ -159,22 +159,35 @@ func (c *uploadCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...interf
 
 	fmt.Println("Reading from stdin...")
 
-	stat, err := c.upload(ctx, os.Stdin)
+	return c.parseAndUpload(ctx, os.Stdin)
+}
+
+func (c *uploadCmd) parseAndUpload(ctx context.Context, data io.Reader) subcommands.ExitStatus {
+	parsed, err := parse.HDF(data)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		return subcommands.ExitFailure
 	}
-
-	fmt.Printf("Sent %d data points\n", len(stat.Stats))
-	return subcommands.ExitSuccess
-}
-
-func (c *uploadCmd) upload(ctx context.Context, reader io.Reader) (ha.Statistics, error) {
-	data, err := parse.HDF(reader)
-	if err != nil {
-		return ha.Statistics{}, fmt.Errorf("cannot read data: %w", err)
+	if len(parsed) == 0 {
+		fmt.Fprintf(os.Stderr, "ERROR: nothing to upload\n")
+		return subcommands.ExitFailure
 	}
 
+	ret := subcommands.ExitSuccess
+	for _, chunk := range parsed {
+		fmt.Println("Uploading data...")
+		stat, err := c.upload(ctx, chunk)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+			ret = subcommands.ExitFailure
+		} else {
+			fmt.Printf("Sent %d data points\n", len(stat.Stats))
+		}
+	}
+	return ret
+}
+
+func (c *uploadCmd) upload(ctx context.Context, data parse.Result) (ha.Statistics, error) {
 	stat, err := parse.Translate(data)
 	if err != nil {
 		return stat, fmt.Errorf("cannot parse data: %w", err)
@@ -231,14 +244,5 @@ func (c *pipeCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...interfac
 		return subcommands.ExitFailure
 	}
 
-	fmt.Println("Uploading data...")
-	stat, err := c.ha.upload(ctx, bytes.NewReader(data))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-		return subcommands.ExitFailure
-	}
-
-	fmt.Printf("Sent %d data points\n", len(stat.Stats))
-
-	return subcommands.ExitSuccess
+	return c.ha.parseAndUpload(ctx, bytes.NewReader(data))
 }

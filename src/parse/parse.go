@@ -54,18 +54,22 @@ type Read struct {
 
 // HDF parses a HDF file and returns the result in ascending timestamps.
 //
+// Sometime ESB data has holes. This function breaks the result in blocks
+// which have correct half an hour increments.
+// Results are ordered by timestamp at both levels.
+//
 // Timestamps are assumed in Europe/Dublin timezone.
 // Some heuristic is done to fix the timezone during the change from
 // Daylight Saving Time to Winter Time: during this shift the same
 // hour happens twice in the same day.
 // Without the timezone information in the source file we have to
 // guess relying on the fact that timestamps are sorted.
-func HDF(hdf io.Reader) (Result, error) {
+func HDF(hdf io.Reader) ([]Result, error) {
 	var res Result
 	r := csv.NewReader(hdf)
 
 	if err := validateHeader(r); err != nil {
-		return res, err
+		return nil, err
 	}
 
 	// Read data.
@@ -75,22 +79,22 @@ func HDF(hdf io.Reader) (Result, error) {
 			break
 		}
 		if err != nil {
-			return res, err
+			return nil, err
 		}
 
 		line, err := parseLine(i, record)
 		if err != nil {
-			return res, err
+			return nil, err
 		}
 
 		if i == 1 {
 			res.MPRN, res.MeterSerialNumber, res.ReadTypes = line.MPRN, line.SerialNumber, wantReadType
 		} else {
 			if res.MPRN != line.MPRN {
-				return res, fmt.Errorf("invalid format: multiple MPRN found (%q and %q)", res.MPRN, line.MPRN)
+				return nil, fmt.Errorf("invalid format: multiple MPRN found (%q and %q)", res.MPRN, line.MPRN)
 			}
 			if res.MeterSerialNumber != line.SerialNumber {
-				return res, fmt.Errorf("invalid format: multiple meter serial numbers found (%q and %q)", res.MeterSerialNumber, line.SerialNumber)
+				return nil, fmt.Errorf("invalid format: multiple meter serial numbers found (%q and %q)", res.MeterSerialNumber, line.SerialNumber)
 			}
 		}
 
@@ -109,11 +113,7 @@ func HDF(hdf io.Reader) (Result, error) {
 	fixTimezone(&res)
 
 	// We need to check also fixTimezone, so validation has to be the last step.
-	if err := validateTimes(res); err != nil {
-		return res, err
-	}
-
-	return res, nil
+	return splitTimes(res)
 }
 
 // fixTimezone attempts to fix the timezone when moving from summer to winter time.
@@ -158,22 +158,42 @@ func fixTimezone(res *Result) {
 	}
 }
 
-// validateTimes validates the the values are recorded every half an hour.
-func validateTimes(res Result) error {
+// splitTimes splits the result in chunks with half an hour increments
+// to workaround ESB missing data.
+func splitTimes(res Result) ([]Result, error) {
 	var lastTs time.Time
+
+	// shallow copy
+	shallowCopyResult := func() Result {
+		r := res
+		r.Reads = nil
+		return r
+	}
+
+	rr := []Result{shallowCopyResult()}
+	idx := 0
+
 	for _, r := range res.Reads {
 		ts := r.EndTime
 		if err := isHalfSharp(ts); err != nil {
-			return err
+			return nil, err
 		}
 		if !lastTs.IsZero() {
-			if m := ts.Sub(lastTs).Minutes(); m != 30 {
-				return fmt.Errorf("time not in 30 minutes increments (%v, %v) %v", lastTs, ts, m)
+			switch m := ts.Sub(lastTs).Minutes(); {
+			case m == 30:
+			// Expected case, nothing to do.
+			case m <= 0:
+				return rr, fmt.Errorf("data is not sorted by time: last %v, current %v", lastTs, ts)
+			default:
+				// We have a gap, let's add a new block of results.
+				rr = append(rr, shallowCopyResult())
+				idx++
 			}
 		}
+		rr[idx].Reads = append(rr[idx].Reads, r)
 		lastTs = ts
 	}
-	return nil
+	return rr, nil
 }
 
 // isHalfSharp checks that the timestamp is at the hour or half an hour sharp.
