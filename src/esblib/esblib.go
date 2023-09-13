@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -149,7 +149,7 @@ func (c *Client) loadLoginPage() (loginSettings, error) {
 	}
 	defer rsp.Body.Close()
 
-	b, err := ioutil.ReadAll(rsp.Body)
+	b, err := io.ReadAll(rsp.Body)
 	if err != nil {
 		return loginSettings{}, err
 	}
@@ -207,7 +207,7 @@ func (c *Client) postLogin(ls loginSettings, user, password string) error {
 	}
 	defer rsp.Body.Close()
 
-	body, err := ioutil.ReadAll(rsp.Body)
+	body, err := io.ReadAll(rsp.Body)
 	if err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func (c *Client) getRedirect(pr loginSettings) (*http.Request, error) {
 	}
 	defer rsp.Body.Close()
 
-	body, err := ioutil.ReadAll(rsp.Body)
+	body, err := io.ReadAll(rsp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read http response: %w", err)
 	}
@@ -307,7 +307,7 @@ func (c *Client) DownloadPowerConsumption(mprn string) ([]byte, error) {
 	// We could stream data to save some memory, but I don't like the idea of
 	// having a pending HTTP request around for too long.
 	// We can change and optimize later if needed.
-	body, err := ioutil.ReadAll(rsp.Body)
+	body, err := io.ReadAll(rsp.Body)
 	if err != nil {
 		return nil, err
 	}
