@@ -181,7 +181,8 @@ func (c *uploadCmd) parseAndUpload(ctx context.Context, data io.Reader) subcomma
 			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 			ret = subcommands.ExitFailure
 		} else {
-			fmt.Printf("Sent %d data points\n", len(stat.Stats))
+			n := len(stat.Stats)
+			fmt.Printf("Sent %d data points from %s to %s\n", n, stat.Stats[0].Start, stat.Stats[n-1].Start)
 		}
 	}
 	return ret
