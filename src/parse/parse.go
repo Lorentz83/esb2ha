@@ -112,6 +112,7 @@ func HDF(hdf io.Reader) ([]Result, error) {
 
 	fixTimezone(&res)
 
+	//return []Result{res}, nil
 	// We need to check also fixTimezone, so validation has to be the last step.
 	return splitTimes(res)
 }
@@ -128,9 +129,10 @@ func fixTimezone(res *Result) {
 	max := len(res.Reads)
 	for i := 0; i < max; i++ {
 		r := res.Reads[i]
-		if n, _ := r.EndTime.Zone(); n != "IST" {
-			// IST == Irish Standard (Summer) Time.
-			// Only Summer Time can be misclassified.
+		if n, _ := r.EndTime.Zone(); n != "GMT" {
+			// Only Winter Time can be misclassified.
+			// During winter Ireland is on GMT.
+			// During summer Ireland is on IST == Irish Standard (Summer) Time.
 			continue
 		}
 		ct := r.EndTime
@@ -138,21 +140,27 @@ func fixTimezone(res *Result) {
 		// checks is required.
 		// Doing both checks we can fix also the time switch at the beginning or end of the file.
 		switch {
-		case i-2 >= 0: // If there is an entry one hour earlier.
-			if res.Reads[i-2].EndTime.Equal(ct) { // And it is equal to now.
-				r.EndTime = ct.Add(time.Hour)
-				res.Reads[i] = r
-			}
 		case i+2 < max: // If there is an entry one hour later.
 			// And adding one hour to this entry makes it one our earlier of the next hour.
-			fix := ct.Add(time.Hour)
-			if res.Reads[i+2].EndTime.Sub(fix).Hours() == 1 {
+			fix := ct.Add(-time.Hour)
+			if res.Reads[i+2].EndTime.Equal(ct) {
+				r.EndTime = fix
+				res.Reads[i] = r
+			}
+		case i-2 >= 0: // If there is an entry one hour earlier.
+			fix := res.Reads[i-2].EndTime.Add(time.Hour)
+
+			_, ftz := fix.Zone()
+			_, rtz := ct.Zone()
+
+			// If the fix changes timezone.
+			if ftz != rtz {
 				r.EndTime = fix
 				res.Reads[i] = r
 			}
 		default:
-			// It is not really true, but this code is already complex enough
-			// and I don't expect we'll ever have less than 3 entries.
+			// I really hope we'll never have less than 3 entries.
+			// But better have some log in case it happens.
 			log.Println("Too little data to attempt fix timezone")
 		}
 	}

@@ -214,12 +214,67 @@ func TestHDF(t *testing.T) {
 			},
 		},
 		{
-			// TODO: verify this is what we get at the end of Summer Time.
 			"Leaving Daylight Saving time",
 			`MPRN,Meter Serial Number,Read Value,Read Type,Read Date and End Time
+123,45,0.1,Active Import Interval (kW),29-10-2023 02:00
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:30
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:00
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:30
 123,45,0.1,Active Import Interval (kW),29-10-2023 01:00
 123,45,0.1,Active Import Interval (kW),29-10-2023 00:30
 123,45,0.1,Active Import Interval (kW),29-10-2023 00:00
+123,45,0.1,Active Import Interval (kW),28-10-2023 23:30`,
+			[]Result{
+				{
+					MPRN:              "123",
+					MeterSerialNumber: "45",
+					ReadTypes:         "Active Import Interval (kW)",
+					Reads: []Read{
+						// This is actual Summer Time.
+						{Value: 0.1, EndTime: time.Date(2023, 10, 28, 23, 30, 0, 0, time.FixedZone("IST", 60*60))},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 00, 00, 0, 0, time.FixedZone("IST", 60*60))},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 00, 30, 0, 0, time.FixedZone("IST", 60*60))},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 00, 0, 0, time.FixedZone("IST", 60*60))},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 30, 0, 0, time.FixedZone("IST", 60*60))},
+						// This is misclassified as Summer Time, we fix it as Winter Time.
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 00, 0, 0, time.FixedZone("GMT", 0))},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 30, 0, 0, time.FixedZone("GMT", 0))},
+						// Winter Time.
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 02, 00, 0, 0, time.FixedZone("GMT", 0))},
+					},
+				},
+			},
+		},
+		{
+			"Leaving Daylight Saving time at beginning",
+			`MPRN,Meter Serial Number,Read Value,Read Type,Read Date and End Time
+123,45,0.1,Active Import Interval (kW),29-10-2023 02:00
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:30
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:00
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:30`,
+			[]Result{
+				{
+					MPRN:              "123",
+					MeterSerialNumber: "45",
+					ReadTypes:         "Active Import Interval (kW)",
+					Reads: []Read{
+						// This is actual Summer Time.
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 30, 0, 0, time.FixedZone("IST", 60*60))},
+						// This is misclassified as Summer Time, we fix it as Winter Time.
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 00, 0, 0, time.FixedZone("GMT", 0))},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 30, 0, 0, time.FixedZone("GMT", 0))},
+						// Winter Time.
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 02, 00, 0, 0, time.FixedZone("GMT", 0))},
+					},
+				},
+			},
+		},
+		{
+			"Leaving Daylight Saving time at end",
+			`MPRN,Meter Serial Number,Read Value,Read Type,Read Date and End Time
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:00
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:30
+123,45,0.1,Active Import Interval (kW),29-10-2023 01:00
 123,45,0.1,Active Import Interval (kW),29-10-2023 00:30`,
 			[]Result{
 				{
@@ -228,24 +283,11 @@ func TestHDF(t *testing.T) {
 					ReadTypes:         "Active Import Interval (kW)",
 					Reads: []Read{
 						// This is actual Summer Time.
-						{
-							Value:   0.1,
-							EndTime: time.Date(2023, 10, 29, 00, 30, 0, 0, time.FixedZone("IST", 60*60)),
-						},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 00, 30, 0, 0, time.FixedZone("IST", 60*60))},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 00, 0, 0, time.FixedZone("IST", 60*60))},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 30, 0, 0, time.FixedZone("IST", 60*60))},
 						// This is misclassified as Summer Time, we fix it as Winter Time.
-						{
-							Value:   0.1,
-							EndTime: time.Date(2023, 10, 29, 00, 00, 0, 0, time.FixedZone("GMT", 0)),
-						},
-						{
-							Value:   0.1,
-							EndTime: time.Date(2023, 10, 29, 00, 30, 0, 0, time.FixedZone("GMT", 0)),
-						},
-						// Winter Time.
-						{
-							Value:   0.1,
-							EndTime: time.Date(2023, 10, 29, 01, 00, 0, 0, time.FixedZone("GMT", 0)),
-						},
+						{Value: 0.1, EndTime: time.Date(2023, 10, 29, 01, 00, 0, 0, time.FixedZone("GMT", 0))},
 					},
 				},
 			},
