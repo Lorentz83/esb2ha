@@ -61,3 +61,6 @@ But everyone likes a fancy UI...
 
 If you are a Python developer interested in porting this project
 please let me know.
+
+NOTE: there is already a python library to download ESB data
+https://github.com/badger707/esb-smart-meter-reading-automation

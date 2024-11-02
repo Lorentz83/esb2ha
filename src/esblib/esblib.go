@@ -17,9 +17,25 @@ import (
 )
 
 const (
-	baseURL = `https://myaccount.esbnetworks.ie`
-	dataURL = `https://myaccount.esbnetworks.ie/DataHub/DownloadHdf?mprn=`
+	baseURL                = `https://myaccount.esbnetworks.ie`
+	dataURL                = `https://myaccount.esbnetworks.ie/DataHub/DownloadHdfPeriodic`
+	prepareURL             = `https://myaccount.esbnetworks.ie/af/t`
+	historicConsumptionURL = `https://myaccount.esbnetworks.ie/Api/HistoricConsumption`
 )
+
+const (
+	FormatDay          = "day"          // Daily snapshot of total usage and export data (where applicable) in actual kWh
+	FormatDayNightPeak = "daynightpeak" // Daily snapshot of day/night/peak usage in actual kWh*
+	FormatIntervalKWh  = "intervalkwh"  // 30-minute readings in calculated kWh
+	FormatIntervalKW   = "intervalkw"   // 30-minute readings in kW
+)
+
+// Format represents a download format for the power consumption data.
+type Format string
+
+func (f Format) String() string {
+	return string(f)
+}
 
 // attributesToMap returns a map of key value attributes on the default namespace.
 func attributesToMap(aa []html.Attribute) map[string]string {
@@ -271,23 +287,34 @@ func (c *Client) finalizeLogin(req *http.Request) error {
 //
 // You have to had a successful call of login in the last few minutes
 // (currently 20) or you'll get an error here.
-//
-// It is the equivalent of "Download HDF" button on the website.
-// The format is what is called an "Harmonised Downloadable File (HDF)",
-// which is just a CSV with the header in the 1st line.
-//
-// Currently, the format is:
-//
-//	MPRN,Meter Serial Number,Read Value,Read Type,Read Date and End Time
-//
-// To the best of my knowledge, the only useful fields are "Read Value"
-// and "Read Date and End Time" because all the others have fixed value.
-func (c *Client) DownloadPowerConsumption(mprn string) ([]byte, error) {
+func (c *Client) DownloadPowerConsumption(mprn string, format Format) ([]byte, error) {
 	if mprn == "" {
 		return nil, errors.New("missing mprn")
 	}
 
-	rsp, err := c.noRedirect.Get(dataURL + mprn)
+	xsrf, err := c.prepareDownload()
+	if err != nil {
+		return nil, err
+	}
+
+	reqBody, err := json.Marshal(map[string]string{"mprn": mprn, "searchType": format.String()})
+	if err != nil {
+		return nil, fmt.Errorf("cannot prepare JSON request: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, dataURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("cannot create http request: %v", err)
+	}
+
+	req.Header.Add("content-type", "application/json")
+	req.Header.Add("x-returnurl", historicConsumptionURL)
+	req.Header.Add("Referer", historicConsumptionURL)
+	req.Header.Add("Origin", baseURL)
+	req.Header.Add("x-xsrf-token", xsrf)
+
+	rsp, err := c.noRedirect.Do(req)
+
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +339,29 @@ func (c *Client) DownloadPowerConsumption(mprn string) ([]byte, error) {
 		return nil, err
 	}
 	return body, nil
+}
+
+func (c *Client) prepareDownload() (string, error) {
+	req, err := http.NewRequest("GET", prepareURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("cannot prepare request: %v", err)
+	}
+
+	req.Header.Add("x-ReturnUrl", historicConsumptionURL)
+	req.Header.Add("Referer", historicConsumptionURL)
+
+	got, err := c.noRedirect.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("preparing download error: %v", err)
+	}
+
+	for _, c := range got.Cookies() {
+		if c.Name == "XSRF-TOKEN" {
+			return c.Value, nil
+		}
+	}
+
+	return "", errors.New("cannot find XSRF-TOKEN while preparing for download")
 }
 
 // pageSettings is a struct to de-serialize the "SETTINGS" json defined on top of the login page.

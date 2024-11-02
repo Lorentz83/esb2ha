@@ -119,7 +119,7 @@ func (c *downloadCmd) download() ([]byte, error) {
 		return nil, fmt.Errorf("cannot login: %w", err)
 	}
 
-	data, err := e.DownloadPowerConsumption(c.mprn)
+	data, err := e.DownloadPowerConsumption(c.mprn, esblib.FormatIntervalKW)
 	if err != nil {
 		return nil, fmt.Errorf("cannot download power consumption data: %w", err)
 	}
